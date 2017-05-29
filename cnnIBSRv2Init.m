@@ -14,8 +14,6 @@ net.normalization.imageSize = [256, 256, 1] ;
 net.normalization.interpolation = 'bilinear' ;
 net.normalization.averageImage = [] ;
 net.normalization.keepAspect = true ;
-net.backPropDepth = inf;
-net.outputSize = [64 64]; % height and width of the final convolutional layer
 net.nLabels = opts.nLabels;
 
 % Block 1
@@ -72,6 +70,9 @@ net.layers(end) = [] ;  % remove last relu layer
 
 % Block 8
 net.layers{end+1} = struct('type', 'softmaxloss', 'name', 'loss') ;
+net = vl_simplenn_tidy(net) ; % upgrade to last version
+net.meta.outputSize = [64 64]; % height and width of the final convolutional layer
+net.meta.backPropDepth = inf;
 
 
 function net = addConvBlock(net, opts, id, h, w, in, out, stride, pad, hole)
@@ -96,7 +97,7 @@ net.layers{end+1} = struct('type', 'conv', 'name', convName, ...
                            'weights', {{0.01/opts.scale * randn(h, w, in, out, 'single'), zeros(1, out,'single')}}, ...
                            'stride', stride, ...
                            'pad', pad, ...
-                           'hole', hole,...
+                           'dilate', hole,...
                            'learningRate', [1 2], ...
                            'weightDecay', [opts.weightDecay 0]) ;
 net.layers{end+1} = struct('type', 'relu', 'name', reluName) ;

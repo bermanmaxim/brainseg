@@ -36,7 +36,7 @@ opts.expDir = 'results/cnn';
 opts.subtractMean = 0;  % calculate and subtract mean image from each training image
 opts.train.batchSize = 10; % increase this value if you have enough GPU RAM
 opts.train.continue = true ;
-opts.train.gpus = [];
+opts.train.gpus = [1];
 opts.train.prefetch = true ;
 opts.train.sync = true ;
 opts.train.expDir = opts.expDir ;
@@ -69,13 +69,13 @@ switch dataset
         imdb = setupImdbRE(net,indsTrain,indsVal);
 end
 if opts.subtractMean
-    net.normalization.averageImage = mean(imdb.images,4);
-    imdb.images = bsxfun(@minus, imdb.images, net.normalization.averageImage);
+    net.meta.normalization.averageImage = mean(imdb.images,4);
+    imdb.images = bsxfun(@minus, imdb.images, net.meta.normalization.averageImage);
 end
 
-bopts = net.normalization ;
+bopts = net.meta.normalization ;
 bopts.numThreads = opts.numFetchThreads ;
-opts.train.backPropDepth = net.backPropDepth;
+opts.train.backPropDepth = net.meta.backPropDepth;
 
 % Stochastic gradient descent
 bopts.transformation = 'stretch' ;
@@ -114,7 +114,9 @@ switch view
         error('Invalid view')
 end
 paths    = setPaths();
-dirs     = dir(paths.IBSR); dirs = dirs(~ismember({dirs.name},{'.','..','.DS_Store','README.txt'}));
+dirs     = dir(paths.IBSR); 
+dirs = dirs(~ismember({dirs.name},{'.','..'}));
+dirs = dirs([dirs.isdir]); % only look at dirs
 nFiles   = numel(dirs); assert(nFiles == 18);
 insz     = [256,128,256]; 
 insz     = insz(permvec); nChannelsPerVolume = insz(3); 
@@ -124,28 +126,35 @@ tmpSeg   = zeros(insz(1),insz(2),nChannelsPerVolume, 'uint8');
 ibsrLabels = [0,2,3,4,5,7,8,10,11,12,13,14,15,16,17,18,24,26,28,29,30,41,...
     42,43,44,46,47,48,49,50,51,52,53,54,58,60,61,62,72];
 labelMap = containers.Map(ibsrLabels,0:numel(ibsrLabels)-1);
-ticStart = tic;
-for i=1:nFiles
-    imgPath = fullfile(paths.IBSR, dirs(i).name, [dirs(i).name '_ana_strip.nii']);
-    segPath = fullfile(paths.IBSR, dirs(i).name, [dirs(i).name '_seg_ana.nii']);
-    if ~exist(imgPath,'file') && exist([imgPath '.gz'],'file')
-        gunzip([imgPath '.gz']);
+
+if exist('data/ibsr.mat', 'file') ~= 2,
+    ticStart = tic;
+    for i=1:nFiles
+        imgPath = fullfile(paths.IBSR, dirs(i).name, [dirs(i).name '_ana_strip.nii']);
+        segPath = fullfile(paths.IBSR, dirs(i).name, [dirs(i).name '_seg_ana.nii']);
+        if ~exist(imgPath,'file') && exist([imgPath '.gz'],'file')
+            gunzip([imgPath '.gz']);
+        end
+        if ~exist(segPath,'file') && exist([segPath '.gz'],'file')
+            gunzip([segPath '.gz']);
+        end
+        img = load_nii(imgPath);
+        seg = load_nii(segPath);
+        img.img = permute(img.img, permvec);
+        seg.img = permute(seg.img, permvec);
+        assert(size(img.img,3) == nChannelsPerVolume)
+        tmpSeg(:) = 0;
+        for j=1:numel(ibsrLabels)
+            tmpSeg(seg.img == ibsrLabels(j)) = labelMap(ibsrLabels(j));
+        end
+        images(:,:,:,i) = 255*bsxfun(@rdivide,single(img.img), single(max(max(img.img))));
+        labels(:,:,:,i) = tmpSeg;
+        progress('Reading ISBR images ',i,nFiles,ticStart);
     end
-    if ~exist(segPath,'file') && exist([segPath '.gz'],'file')
-        gunzip([segPath '.gz']);
-    end
-    img = load_nii(imgPath);
-    seg = load_nii(segPath);
-    img.img = permute(img.img, permvec);
-    seg.img = permute(seg.img, permvec);
-    assert(size(img.img,3) == nChannelsPerVolume)
-    tmpSeg(:) = 0;
-    for j=1:numel(ibsrLabels)
-        tmpSeg(seg.img == ibsrLabels(j)) = labelMap(ibsrLabels(j));
-    end
-    images(:,:,:,i) = 255*bsxfun(@rdivide,single(img.img), single(max(max(img.img))));
-    labels(:,:,:,i) = tmpSeg;
-    progress('Reading ISBR images',i,nFiles,ticStart);
+    save('data/ibsr.mat', 'images', 'labels');
+else
+    sprintf('Loading cached ISBR images from data/ibsr.mat\n')
+    load('data/ibsr.mat', 'images', 'labels');
 end
 
 % VERSION OF THE CODE WORKING ON MHD images -------------------------------
@@ -204,10 +213,10 @@ if augment
     imagesTrain = imagesTrainAug; clear imagesTrainAug;
     labelsTrain = labelsTrainAug; clear labelsTrainAug;
 end
-insz        = net.normalization.imageSize(1:2);  % e.g. 321x321
-outsz       = net.outputSize;                    % e.g. 41x41
-labelsTrain = imresize(labelsTrain, outsz,'nearest');
-labelsVal   = imresize(labelsVal,   outsz,'nearest');
+insz        = net.meta.normalization.imageSize(1:2);  % e.g. 321x321
+outsz       = net.meta.outputSize;                         % e.g. 41x41
+labelsTrain = imresize(labelsTrain, outsz, 'nearest');
+labelsVal   = imresize(labelsVal,   outsz, 'nearest');
 if ~isequal(insz,[size(imagesTrain,1),size(imagesTrain,2)])
     imagesTrain = imresize(imagesTrain, insz, 'nearest');
     imagesVal   = imresize(imagesVal,   insz, 'nearest');
@@ -215,18 +224,18 @@ end
 
 nSlicesTrain= size(imagesTrain,3);
 nSlicesVal  = size(imagesVal,3);
-if net.normalization.imageSize(3) == 1  % single channel per training example
+if net.meta.normalization.imageSize(3) == 1  % single channel per training example
     imdb.train = 1:nSlicesTrain;
     imdb.val   = (1:nSlicesVal) + nSlicesTrain;
-elseif net.normalization.imageSize(3) > 1   % multiple channels per training example
-    % We will store the indeces of the slides corresponding to each stack
+elseif net.meta.normalization.imageSize(3) > 1   % multiple channels per training example
+    % We will store the indices of the slides corresponding to each stack
     % to avoid replicating training data and keep RAM requirements low.
-    assert(isodd(net.normalization.imageSize(3)),'The number of input channels must be odd');
+    assert(isodd(net.meta.normalization.imageSize(3)),'The number of input channels must be odd');
     assert(~mod(nSlicesTrain,nChannelsPerVolume))
     assert(~mod(nSlicesVal,  nChannelsPerVolume))
     nVolumesTrain = nSlicesTrain/nChannelsPerVolume;
     nVolumesVal = nSlicesVal/nChannelsPerVolume;
-    stackWidth  = (net.normalization.imageSize(3) - 1)/2;
+    stackWidth  = (net.meta.normalization.imageSize(3) - 1)/2;
     imdb.train  = bsxfun(@plus, 1:nChannelsPerVolume, (-stackWidth:stackWidth)');
     imdb.train  = imdb.train(:,stackWidth+1:end-stackWidth);
     imdb.val    = imdb.train;
@@ -317,8 +326,8 @@ if augment
     imagesTrain = imagesTrainAug; clear imagesTrainAug;
     labelsTrain = labelsTrainAug; clear labelsTrainAug;
 end
-insz        = net.normalization.imageSize(1:2);  % e.g. 321x321
-outsz       = net.outputSize;                    % e.g. 41x41
+insz        = net.meta.normalization.imageSize(1:2);  % e.g. 321x321
+outsz       = net.meta.outputSize;                    % e.g. 41x41
 labelsTrain = imresize(labelsTrain, outsz,'nearest');
 labelsVal   = imresize(labelsVal,   outsz,'nearest');
 if ~isequal(insz,[size(imagesTrain,1),size(imagesTrain,2)])
@@ -563,6 +572,7 @@ function  [net,stats,prof] = process_epoch(opts, getBatch, epoch, subset, learni
 % validation mode if learning rate is zero
 training = learningRate > 0 ;
 if training, mode = 'training' ; else mode = 'validation' ; end
+if training, simplemode = 'normal' ; else simplemode = 'test' ; end
 if nargout > 2, mpiprofile on ; end
 
 numGpus = numel(opts.gpus) ;
@@ -610,7 +620,7 @@ for t=1:opts.batchSize:numelSubset
     if training, dzdy = one; else dzdy = [] ; end
     res = vl_simplenn(net, im, dzdy, res, ...
                       'accumulate', s ~= 1, ...
-                      'disableDropout', ~training, ...
+                      'mode', simplemode, ...
                       'conserveMemory', opts.conserveMemory, ...
                       'backPropDepth', opts.backPropDepth, ...
                       'sync', opts.sync) ;
@@ -619,14 +629,14 @@ for t=1:opts.batchSize:numelSubset
     if 0
       resgpu = vl_simplenn(net, im, dzdy, res, ...
           'accumulate', s ~= 1, ...
-          'disableDropout', ~training, ...
+          'mode', simplemode, ...
           'conserveMemory', opts.conserveMemory, ...
           'backPropDepth', opts.backPropDepth, ...
           'sync', opts.sync) ;
       net.layers{end} = rmfield(net.layers{end},'class'); net = vl_simplenn_move(net,'cpu'); net.layers{end}.class = labels;
       rescpu = vl_simplenn(net, gather(im), gather(dzdy), res, ...
           'accumulate', s ~= 1, ...
-          'disableDropout', ~training, ...
+          'mode', simplemode, ...
           'conserveMemory', opts.conserveMemory, ...
           'backPropDepth', opts.backPropDepth, ...
           'sync', opts.sync) ;

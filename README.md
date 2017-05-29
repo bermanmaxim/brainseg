@@ -40,7 +40,7 @@ If you use the *RF*-produced probability maps please cite:
 ### Requirements: software
 
 1. A recent version of MATLAB. All our experiments were performed using MATLAB 2014a and Ubuntu 14.04.
-2. [Our modified version of MatConvNet](https://github.com/tsogkas/matconvnet), with support for holes (included in this repository). 
+2. [MatConvNet](http://www.vlfeat.org/matconvnet/) (tested with `v1.0-beta24`)
 3. [NifTI tools](http://www.mathworks.com/matlabcentral/fileexchange/8797-tools-for-nifti-and-analyze-image) for loading NifTI files.
 
 ### Requirements: hardware
