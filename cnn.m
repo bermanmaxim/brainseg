@@ -36,11 +36,11 @@ opts.expDir = 'results/cnn';
 opts.subtractMean = 0;  % calculate and subtract mean image from each training image
 opts.train.batchSize = 10; % increase this value if you have enough GPU RAM
 opts.train.continue = true ;
-opts.train.gpus = [1];
+opts.train.gpus = [];
 opts.train.prefetch = true ;
 opts.train.sync = true ;
 opts.train.expDir = opts.expDir ;
-opts.train.plotErrors = 0;
+opts.train.plotErrors = 1;
 opts.train.modelName = ['net-' dataset tag];
 switch opts.modelType
   case 'dropout', opts.train.learningRate = logspace(-2, -4, 50) ;

@@ -73,6 +73,7 @@ net.layers{end+1} = struct('type', 'softmaxloss', 'name', 'loss') ;
 net = vl_simplenn_tidy(net) ; % upgrade to last version
 net.meta.outputSize = [64 64]; % height and width of the final convolutional layer
 net.meta.backPropDepth = inf;
+net.layers{end-1}.precious = true; % keep this intermediate result
 
 
 function net = addConvBlock(net, opts, id, h, w, in, out, stride, pad, hole)
