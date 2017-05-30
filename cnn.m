@@ -34,9 +34,10 @@ opts.numFetchThreads = 12 ;
 opts.lite = false ;
 opts.expDir = 'results/cnn';
 opts.subtractMean = 0;  % calculate and subtract mean image from each training image
-opts.train.batchSize = 10; % increase this value if you have enough GPU RAM
+opts.train.batchSize = 1; % increase this value if you have enough GPU RAM
+opts.train.numSubBatches = 10 ;
 opts.train.continue = true ;
-opts.train.gpus = [];
+opts.train.gpus = [1];
 opts.train.prefetch = true ;
 opts.train.sync = true ;
 opts.train.expDir = opts.expDir ;
@@ -153,8 +154,8 @@ if exist('data/ibsr.mat', 'file') ~= 2,
     end
     save('data/ibsr.mat', 'images', 'labels');
 else
-    sprintf('Loading cached ISBR images from data/ibsr.mat\n')
     load('data/ibsr.mat', 'images', 'labels');
+    fprintf('Loaded cached ISBR images from data/ibsr.mat\n')
 end
 
 % VERSION OF THE CODE WORKING ON MHD images -------------------------------
