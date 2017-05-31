@@ -1,4 +1,4 @@
-function imdb = setupImdbIBSRv2(net,indsTrain,indsVal,augment,view, cropped)
+function [imdb, epochSize] = setupImdbIBSRv2(net,indsTrain,indsVal,augment,view,cropped)
 % -------------------------------------------------------------------------
 if nargin < 2, indsTrain = 1:5; end  % indices of the train examples
 if nargin < 3, indsVal   = [];  end  % indices of the validation examples
@@ -27,12 +27,11 @@ insz     = insz(permvec); nChannelsPerVolume = insz(3);
 images   = zeros(insz(1),insz(2),nChannelsPerVolume,nFiles, 'uint8');
 labels   = zeros(insz(1),insz(2),nChannelsPerVolume,nFiles, 'uint8');
 tmpSeg   = zeros(insz(1),insz(2),nChannelsPerVolume, 'uint8');
-% ibsrLabels = [0,2,3,4,5,7,8,10,11,12,13,14,15,16,17,18,24,26,28,29,30,41,...
-%     42,43,44,46,47,48,49,50,51,52,53,54,58,60,61,62,72];
-ibsrLabels = [0, 10, 11, 12, 13, 49, 50, 51, 52];
+ibsrLabels = net.meta.labelindices;
 labelMap = containers.Map(ibsrLabels,0:numel(ibsrLabels)-1);
+ibsrcache = fullfile('data', ['ibsr-' net.meta.labelset '.mat']);
 
-if exist('data/ibsr.mat', 'file') ~= 2,
+if exist(ibsrcache, 'file') ~= 2
     ticStart = tic;
     for i=1:nFiles
         imgPath = fullfile(paths.IBSR, dirs(i).name, [dirs(i).name '_ana_strip.nii']);
@@ -56,9 +55,9 @@ if exist('data/ibsr.mat', 'file') ~= 2,
         labels(:,:,:,i) = tmpSeg;
         progress('Reading ISBR images ',i,nFiles,ticStart);
     end
-    save('data/ibsr.mat', 'images', 'labels');
+    save(ibsrcache, 'images', 'labels');
 else
-    load('data/ibsr.mat', 'images', 'labels');
+    load(ibsrcache, 'images', 'labels');
     fprintf('Loaded cached ISBR images from data/ibsr.mat\n')
 end
 
@@ -90,14 +89,15 @@ end
 %     progress('Reading ISBR images',i,nFiles,ticStart);
 % end
 
-if cropped
-    [imin, imax, jmin, jmax, kmin, kmax] = findbbox(images, 3);
-    images = images(imin:imax, jmin:jmax, kmin:kmax, :);
-    labels = labels(imin:imax, jmin:jmax, kmin:kmax, :);
-    insz = size(images);
-    insz = insz(1:3);
-    nChannelsPerVolume = insz(3);
-end
+% if cropped
+%     % crop in x-y-direction
+%     [imin, imax, jmin, jmax] = findbbox(images, 2);
+%     images = images(imin:imax, jmin:jmax, :, :);
+%     labels = labels(imin:imax, jmin:jmax, :, :);
+%     insz = size(images);
+%     insz = insz(1:3);
+%     nChannelsPerVolume = insz(3);
+% end
 
 imagesTrain = reshape(images(:,:,:,indsTrain),insz(1),insz(2),[]);
 imagesVal   = reshape(images(:,:,:,indsVal),  insz(1),insz(2),[]); clear images;
@@ -106,6 +106,20 @@ labelsVal   = reshape(labels(:,:,:,indsVal),  insz(1),insz(2),[]); clear labels;
 assert(size(imagesTrain,3) == numel(indsTrain) * nChannelsPerVolume);
 assert(size(imagesVal  ,3) == numel(indsVal) * nChannelsPerVolume);
 
+if cropped
+    % crop in z-direction
+    nonz_train = sum(sum(abs(imagesTrain), 1), 2) > 0;
+    nonz_train = nonz_train(:);
+    imagesTrain = imagesTrain(:, :, nonz_train);
+    labelsTrain = labelsTrain(:, :, nonz_train);
+    nonz_val = sum(sum(abs(imagesVal), 1), 2) > 0;
+    nonz_val = nonz_val(:);
+    imagesVal = imagesVal(:, :, nonz_val);
+    labelsVal = labelsVal(:, :, nonz_val);
+end
+
+% real epoch size
+epochSize = size(imagesTrain, 3);
 
 % Augment train patches
 % Flip horizontally
@@ -183,6 +197,13 @@ assert(isinrange(imdb.labels,[1,numel(ibsrLabels)]),'Labels not in range')
 assert(size(imdb.images,4) == size(imdb.labels,4))
 assert(max(imdb.val(:)) == size(imdb.images,4))
 
-save('data/imdb.mat', 'imdb');
-fprintf('Saved imdb to data/imdb.mat\n')
+% find background examples
+imdb.void_im = sum(sum(sum(abs(imdb.images), 1), 2), 3);
+imdb.void_im = imdb.void_im(:) == 0;
+imdb.void_lab = sum(sum(sum(imdb.labels - 1, 1), 2), 3); % here the lowest label (background) is always 1.
+imdb.void_lab = imdb.void_lab(:) == 0;
+
+
+% save('data/imdb.mat', 'imdb');
+% fprintf('Saved imdb to data/imdb.mat\n')
 end

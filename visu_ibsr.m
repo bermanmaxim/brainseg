@@ -1,7 +1,5 @@
 slice = 128;
-
-ibsrLabels = [0,2,3,4,5,7,8,10,11,12,13,14,15,16,17,18,24,26,28,29,30,41,...
-    42,43,44,46,47,48,49,50,51,52,53,54,58,60,61,62,72];
+ibsrLabels = [0, 10, 11, 12, 13, 49, 50, 51, 52];
 
 labelMap = containers.Map(ibsrLabels,0:numel(ibsrLabels)-1);
 invlabelMap = containers.Map(0:numel(ibsrLabels)-1, ibsrLabels);

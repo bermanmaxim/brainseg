@@ -4,8 +4,24 @@ function net = cnnIBSRv2Init(varargin)
 opts.scale = 1 ;
 opts.initBias = 0.1 ;
 opts.weightDecay = 1 ;
-opts.nLabels = 39;
+opts.labelset = 'set9';
 opts = vl_argparse(opts, varargin) ;
+% opts.labelindices = [0, 10, 11, 12, 13, 49, 50, 51, 52]; % ibsr labels
+
+if strcmp(opts.labelset, 'set9')
+    opts.labelindices = [0, 10, 11, 12, 13, 49, 50, 51, 52]; % ibsr labels
+elseif strcmp(opts.labelset, 'set39')
+    opts.labelindices = [0,2,3,4,5,7,8,10,11,12,13,14,15,16,17,18,24,26,28,29,30,41,...
+    42,43,44,46,47,48,49,50,51,52,53,54,58,60,61,62,72];
+end
+
+lmap = getlabels;
+opts.labelnames = {};
+for i = opts.labelindices
+    opts.labelnames{end + 1} = lmap(i).name;
+end
+
+opts.nLabels = length(opts.labelindices) ;
 
 net.layers = {} ;
 
@@ -69,10 +85,16 @@ net = addConvBlock(net, opts, 7, 1, 1, 1024, opts.nLabels, 1, 0, 1) ;
 net.layers(end) = [] ;  % remove last relu layer
 
 % Block 8
-net.layers{end+1} = struct('type', 'softmaxloss', 'name', 'loss') ;
+% net.layers{end+1} = struct('type', 'softmaxloss', 'name', 'loss') ;
+[forw, backw] = segmentationloss;
+net.layers{end+1} = struct('type', 'custom', 'forward', forw, 'backward', backw,...
+                           'weights', []) ;
 net = vl_simplenn_tidy(net) ; % upgrade to last version
 net.meta.outputSize = [64 64]; % height and width of the final convolutional layer
 net.meta.backPropDepth = inf;
+net.meta.labelindices = opts.labelindices;
+net.meta.labelnames = opts.labelnames;
+net.meta.labelset = opts.labelset;
 net.layers{end-1}.precious = true; % keep this intermediate result
 
 

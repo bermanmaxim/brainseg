@@ -29,23 +29,43 @@ if nargin < 5, view       = 1;      end
 
 % Default options for CNN training
 opts.modelType = 'dropout' ; % bnorm or dropout
-[opts, varargin] = vl_argparse(opts, varargin) ;
+[opts, varargin] = vl_argparse(opts, varargin) ; % can replace modeltype
 opts.numFetchThreads = 12 ;
 opts.lite = false ;
-opts.expDir = 'results/cnn';
+opts.labelset = 'set9';
+opts.expName = 'cnn9';
+opts.expDir = fullfile('results', opts.expName);
 opts.subtractMean = 0;  % calculate and subtract mean image from each training image
-opts.train.batchSize = 10; % increase this value if you have enough GPU RAM
-opts.train.numSubBatches = 10 ;
 opts.train.continue = true ;
 opts.train.gpus = [1];
+[opts, varargin] = vl_argparse(opts, varargin) ;
+if length(opts.train.gpus) >= 1
+    D = gpuDevice();
+    memry = D.AvailableMemory;      % incorrect if multigpu
+    if memry > 3.5 * 1e9
+        opts.train.batchSize = 10;
+        opts.train.numSubBatches = 1 ;
+    else
+        fprintf('low GPU memory setting: using sub-batches\n')
+        opts.train.batchSize = 10;
+        opts.train.numSubBatches = 10 ;
+    end
+else % cpu setting
+    opts.train.batchSize = 10;
+    opts.train.numSubBatches = 1;
+end 
+opts.train.balanced = true; % maintain a balanced training set by sampling
+opts.train.ratio = 0.6;     % ratio of non-void examples in sampling
+opts.train.augment = false ;
 opts.train.prefetch = true ;
 opts.train.sync = true ;
+opts.train.conserveMemory = false;
 opts.train.expDir = opts.expDir ;
 opts.train.plotDiagnostics = false ;
 opts.train.plotStatistics = true;
 % opts.train.modelName = ['net-' dataset tag];
 switch opts.modelType
-  case 'dropout', opts.train.learningRate = logspace(-2, -4, 50) ;
+  case 'dropout', opts.train.learningRate = logspace(-2, -4, 35) ;
   case 'bnorm',   opts.train.learningRate = logspace(-1, -3, 20) ;
 end
 [opts, varargin] = vl_argparse(opts, varargin) ;
@@ -57,19 +77,12 @@ opts = vl_argparse(opts, varargin) ;
 disp('Database initialization')
 switch dataset
     case 'IBSR'
-        net  = cnnIBSRv2Init();
-        imdb = setupImdbIBSRv2(net,indsTrain,indsVal,0,view);
-    case 'RE'
-        warning('RE is a proprietary dataset. Any RE-related code is included for archiving reasons.')
-        net = cnnREInit();
-        rng(0); nFiles = 35; inds = randperm(nFiles);
-        if indsTrain == 1
-            indsTrain = inds(1:18); indsVal = inds(19:20);
-        elseif indsTrain == 2
-            indsTrain = inds(19:end); indsVal = inds(1:2);
-        end
-        imdb = setupImdbRE(net,indsTrain,indsVal);
+        net  = cnnIBSRv2Init('labelset', opts.labelset);
+        [imdb, epochSize] = setupImdbIBSRv2(net,indsTrain,indsVal,opts.train.augment,view);
 end
+
+opts.train.epochSize = epochSize ; % set real epoch length
+
 if opts.subtractMean
     net.meta.normalization.averageImage = mean(imdb.images,4);
     imdb.images = bsxfun(@minus, imdb.images, net.meta.normalization.averageImage);
@@ -83,7 +96,7 @@ opts.train.backPropDepth = net.meta.backPropDepth;
 bopts.transformation = 'stretch' ;
 fn = getBatchWrapper(bopts) ;
 
-[net,info] = cnnTrain(net, imdb, fn, opts.train, 'conserveMemory', true) ;
+[net,info] = cnnTrain(net, imdb, fn, opts.train) ;
 
 % -------------------------------------------------------------------------
 function fn = getBatchWrapper(opts)
@@ -120,6 +133,7 @@ opts.expDir = fullfile('data','exp') ;
 opts.continue = true ;
 opts.batchSize = 256 ;
 opts.numSubBatches = 1 ;
+opts.augment = false ;
 opts.train = [] ;
 opts.val = [] ;
 opts.gpus = [] ;
@@ -128,6 +142,9 @@ opts.prefetch = false ;
 opts.numEpochs = 300 ;
 opts.learningRate = 0.001 ;
 opts.weightDecay = 0.0005 ;
+
+opts.balanced = false; % maintain a balanced training set by sampling
+opts.ratio = 0.5; % minimum ratio positives/negatives when balancing
 
 opts.solver = [] ;  % Empty array means use the default SGD solver
 [opts, varargin] = vl_argparse(opts, varargin) ;
@@ -198,7 +215,7 @@ if isstr(opts.errorFunction)
       hasError = false ;
     case 'multiclass'
       opts.errorFunction = @error_multiclass ;
-      if isempty(opts.errorLabels), opts.errorLabels = {'top1err', 'top5err'} ; end
+      if isempty(opts.errorLabels), opts.errorLabels = {'top1err', 'top3err'} ; end
     case 'binary'
       opts.errorFunction = @error_binary ;
       if isempty(opts.errorLabels), opts.errorLabels = {'binerr'} ; end
@@ -238,8 +255,24 @@ for epoch=start+1:opts.numEpochs
   params = opts ;
   params.epoch = epoch ;
   params.learningRate = opts.learningRate(min(epoch, numel(opts.learningRate))) ;
+  
+  if opts.balanced
+      positives = intersect( find(~imdb.void_lab), opts.train ) ;
+      negatives = intersect( find(imdb.void_lab), opts.train ) ;
+            
+      thisratio = length(positives) / length(negatives);
+      
+      if thisratio < opts.ratio
+          negatives = negatives(randperm(end)) ;
+          negatives = negatives(1:floor( length(positives) / opts.ratio ));
+      end
+      
+      params.train = [positives negatives];
+  end
   params.train = opts.train(randperm(numel(opts.train))) ; % shuffle
+  
   params.train = params.train(1:min(opts.epochSize, numel(opts.train)));
+  
   params.val = opts.val(randperm(numel(opts.val))) ;
   params.imdb = imdb ;
   params.getBatch = getBatch ;
@@ -294,6 +327,9 @@ for epoch=start+1:opts.numEpochs
       title(p) ;
       legend(leg{:}) ;
       grid on ;
+      % if epoch > 1 % if epoch greater than 1, adjust y lim ignoring first epoch
+      %      ylim([min(values(2:end)) max(values(2:end))]);
+      % end
     end
     drawnow ;
     print(1, modelFigPath, '-dpdf') ;
@@ -332,7 +368,9 @@ if size(labels,3) == 2
   labels(:,:,2,:) = [] ;
 end
 
-m = min(5, size(predictions,3)) ;
+topk = 3;
+
+m = min(topk, size(predictions,3)) ;
 
 error = ~bsxfun(@eq, predictions, labels) ;
 err(1,1) = sum(sum(sum(mass .* error(:,:,1,:)))) ;
@@ -454,7 +492,14 @@ for t=1:params.batchSize:numel(subset)
                       'cudnn', params.cudnn, ...
                       'parameterServer', parserv, ...
                       'holdOn', s < params.numSubBatches) ;
-
+    if strcmp(evalMode, 'test')
+        1;
+        % imagesc(labels(:,:,1,1))
+        % out = res(end - 1).x
+        % [prob, out_lab] = max(out, [], 3);
+        % imagesc(out_lab(:,:,1,1))
+    end
+    
     % accumulate errors
     error = sum([error, [...
       sum(double(gather(res(end).x))) ;
@@ -544,6 +589,8 @@ else
 end
 
 net = vl_simplenn_move(net, 'cpu') ;
+
+fprintf('%s: epoch %02d: end in %.1f minutes\n', mode, params.epoch, toc(start) / 60)
 
 % -------------------------------------------------------------------------
 function [net, res, state] = accumulateGradients(net, res, state, params, batchSize, parserv)
