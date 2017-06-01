@@ -1,7 +1,9 @@
 function errors = test_cnn
 
-opts.labelset = 'set39';
-opts.expName = 'cnn39';
+%opts.labelset = 'set39';
+%opts.expName = 'cnn39';
+opts.labelset = 'set9';
+opts.expName = 'cnn9';
 
 remainlabs = [0, 10, 11, 12, 13, 49, 50, 51, 52];
 %remainlabs = [];
@@ -24,7 +26,7 @@ if cropped
 end
 
 imagesTest = images(:, :, :, indsTest);
-labelsTest = labels(:, :, :, indsTest);
+labelsTest = labels(:, :, :, indsTest) + 1;
 
 net  = cnnIBSRv2Init('labelset', opts.labelset);
 
@@ -45,7 +47,7 @@ imagesTest = imresize(imagesTest, insz, 'bicubic');
 % end
 
 slice = 80;
-patient = 1;
+patient = 3;
 
 im = imagesTest(:, :, slice, patient);
 im = single(reshape(im, insz(1), insz(2), 1, 1));
@@ -90,8 +92,6 @@ subplot(2, 1, 1)
 title('ground truth')
 image = mergeon(uint8(gather(im)), colour2d(lab, remainlabs, invlabelMap));
 imshow(image)
-
-intersect(unique(lab), remainlabs)
 
 subplot(2, 1, 2)
 title('predicted')

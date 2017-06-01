@@ -34,6 +34,8 @@ opts.numFetchThreads = 12 ;
 opts.lite = false ;
 opts.labelset = 'set9';
 opts.expName = 'cnn9';
+opts.train.balanced = true; % maintain a balanced training set by sampling
+opts.train.ratio = 0.8;     % ratio of non-void examples in sampling
 opts.expDir = fullfile('results', opts.expName);
 opts.subtractMean = 0;  % calculate and subtract mean image from each training image
 opts.train.continue = true ;
@@ -53,10 +55,8 @@ if length(opts.train.gpus) >= 1
 else % cpu setting
     opts.train.batchSize = 10;
     opts.train.numSubBatches = 1;
-end 
-opts.train.balanced = true; % maintain a balanced training set by sampling
-opts.train.ratio = 0.6;     % ratio of non-void examples in sampling
-opts.train.augment = false ;
+end
+opts.train.augment = true ;
 opts.train.prefetch = true ;
 opts.train.sync = true ;
 opts.train.conserveMemory = false;
@@ -267,7 +267,7 @@ for epoch=start+1:opts.numEpochs
           negatives = negatives(1:floor( length(positives) / opts.ratio ));
       end
       
-      params.train = [positives negatives];
+      params.train = [positives; negatives];
   end
   params.train = opts.train(randperm(numel(opts.train))) ; % shuffle
   

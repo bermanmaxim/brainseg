@@ -18,13 +18,13 @@ image_b = zeros(size(segmentation, 1), size(segmentation, 2), 'uint8');
 unilab = unique(segmentation);
 for j = 1:length(unilab)
     i = unilab(j);
-    if ~isempty(restrict_to) && ~ismember(i, restrict_to)
-        continue
-    end
     if isKey(invlabelMap, i)
         k = invlabelMap(i);
     else
         k = i;
+    end
+    if ~isempty(restrict_to) && ~ismember(k, restrict_to)
+        continue
     end
     image_r(segmentation == i) = labelprops(k).rgb(1);
     image_g(segmentation == i) = labelprops(k).rgb(2);
