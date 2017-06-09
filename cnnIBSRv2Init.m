@@ -5,8 +5,10 @@ opts.scale = 1 ;
 opts.initBias = 0.1 ;
 opts.weightDecay = 1 ;
 opts.labelset = 'set9';
+opts.dropout_rate = 0.5;
 opts = vl_argparse(opts, varargin) ;
 % opts.labelindices = [0, 10, 11, 12, 13, 49, 50, 51, 52]; % ibsr labels
+
 
 if strcmp(opts.labelset, 'set9')
     opts.labelindices = [0, 10, 11, 12, 13, 49, 50, 51, 52]; % ibsr labels
@@ -55,7 +57,7 @@ net.layers{end+1} = struct('type', 'pool', 'name', 'pool3', ...
                            'pool', [3 3], ...
                            'stride', 1, ...
                            'pad', 1) ;
-net.layers{end+1} = struct('type', 'dropout', 'name', 'dropout3', 'rate', 0.5) ;
+net.layers{end+1} = struct('type', 'dropout', 'name', 'dropout3', 'rate', opts.dropout_rate) ;
 
 % Block 4
 net = addConvBlock(net, opts, 4, 3, 3, 256, 512, 1, 2, 2) ;
@@ -64,7 +66,7 @@ net.layers{end+1} = struct('type', 'pool', 'name', 'pool4', ...
                            'pool', [3 3], ...
                            'stride', 1, ...
                            'pad', 1) ;
-net.layers{end+1} = struct('type', 'dropout', 'name', 'dropout4', 'rate', 0.5) ;
+net.layers{end+1} = struct('type', 'dropout', 'name', 'dropout4', 'rate', opts.dropout_rate) ;
 
 % Block 5
 net = addConvBlock(net, opts, 5, 3, 3, 512, 512, 1, 2, 2) ;
@@ -73,11 +75,11 @@ net.layers{end+1} = struct('type', 'pool', 'name', 'pool5', ...
                            'pool', [3 3], ...
                            'stride', 1, ...
                            'pad', 1) ;
-net.layers{end+1} = struct('type', 'dropout', 'name', 'dropout5', 'rate', 0.5) ;
+net.layers{end+1} = struct('type', 'dropout', 'name', 'dropout5', 'rate', opts.dropout_rate) ;
 
 % Block 6
 net = addConvBlock(net, opts, 6, 4, 4, 512, 1024, 1, 6, 4) ;
-net.layers{end+1} = struct('type', 'dropout', 'name', 'dropout6', 'rate', 0.5) ;
+net.layers{end+1} = struct('type', 'dropout', 'name', 'dropout6', 'rate', opts.dropout_rate) ;
 
 
 % Block 7

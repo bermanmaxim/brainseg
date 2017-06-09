@@ -1,24 +1,7 @@
+% debug: here we train and evaluate only the first image of the training
+% set.
+
 function new_cnn(dataset,indsTrain,indsVal,tag,view,varargin)
-% CNN Setup and train a CNN on IBSR or RE dataset. Based on the MatConvNet
-% template.
-% 
-% CNN(dataset,indsTrain, indsVal) where dataset is either 'IBSR' (Internet
-% Brain Segmentation Repository) or 'RE' (Roland Epilepsy) trains a CNN
-% using data from the respective dataset. IndsTrain are the indices of the
-% subjects used for trianing and indsVal are the indices of the subjects
-% used for validation.
-% 
-% CNN(dataset,indsTrain, indsVal, tag) adds a tag in the name of the stored
-% model file.
-% 
-% CNN(dataset,indsTrain, indsVal, tag, view) uses slices from one out of
-% three possible views: 'axial' (1), 'sagittal' (2), or 'coronal' (3).
-% 
-% CNN(dataset,indsTrain, indsVal, tag, view, varargin) uses additional
-% arguments for the MatConvNet functions.
-% 
-% Stavros Tsogkas, <stavros.tsogkas@centralesupelec.fr>
-% Last update: February 2016
 
 % Default arguments
 if nargin < 1, dataset    = 'IBSR'; end
@@ -30,58 +13,49 @@ if nargin < 5, view       = 1;      end
 % Default options for CNN training
 opts.modelType = 'dropout' ; % bnorm or dropout
 [opts, varargin] = vl_argparse(opts, varargin) ; % can replace modeltype
-opts.numFetchThreads = 12 ;
+opts.numFetchThreads = 1 ;
 opts.lite = false ;
 opts.labelset = 'set9';
-opts.expName = 'cnn9';
+opts.expName = 'cnn9debug1';
 opts.train.balanced = true; % maintain a balanced training set by sampling
-opts.train.ratio = 0.2;     % max. ratio of void examples in sampling
+opts.train.ratio = 0.0;     % max. ratio of non-void examples in sampling
 opts.expDir = fullfile('results', opts.expName);
 opts.subtractMean = 0;  % calculate and subtract mean image from each training image
+opts.dropout_rate = 0.5;
 opts.train.continue = true ;
 opts.train.gpus = [1];
 [opts, varargin] = vl_argparse(opts, varargin) ;
-if length(opts.train.gpus) >= 1
-    D = gpuDevice();
-    memry = D.AvailableMemory;      % incorrect if multigpu
-    if memry > 3.5 * 1e9
-        opts.train.batchSize = 10;
-        opts.train.numSubBatches = 1 ;
-    else
-        fprintf('low GPU memory setting: using sub-batches\n')
-        opts.train.batchSize = 10;
-        opts.train.numSubBatches = 10 ;
-    end
-else % cpu setting
-    opts.train.batchSize = 10;
-    opts.train.numSubBatches = 1;
-end
-opts.train.augment = true ;
-opts.train.prefetch = true ;
+opts.train.batchSize = 1;
+opts.train.numSubBatches = 1 ;
+opts.train.augment = false ;
+opts.train.prefetch = false ;
 opts.train.sync = true ;
 opts.train.conserveMemory = false;
 opts.train.expDir = opts.expDir ;
-opts.train.plotDiagnostics = false ;
+opts.train.plotDiagnostics = true ;
 opts.train.plotStatistics = true;
 % opts.train.modelName = ['net-' dataset tag];
 switch opts.modelType
-  case 'dropout', opts.train.learningRate = logspace(-2, -4, 35) ;
+  case 'dropout', opts.train.learningRate = logspace(-2.5, -5, 200) ;
   case 'bnorm',   opts.train.learningRate = logspace(-1, -3, 20) ;
 end
 [opts, varargin] = vl_argparse(opts, varargin) ;
 
 opts.train.numEpochs = numel(opts.train.learningRate) ;
+[opts, varargin] = vl_argparse(opts, varargin) ;
+
+opts.train.numEpochs = 10000 ;
 opts = vl_argparse(opts, varargin) ;
 
 % Network and  Database initialization
 disp('Database initialization')
 switch dataset
     case 'IBSR'
-        net  = cnnIBSRv2Init('labelset', opts.labelset);
+        net  = cnnIBSRv2Init('labelset', opts.labelset, 'dropout_rate', opts.dropout_rate);
         [imdb, epochSize] = setupImdbIBSRv2(net,indsTrain,indsVal,opts.train.augment,view);
 end
 
-opts.train.epochSize = epochSize ; % set real epoch length
+opts.train.epochSize = 1 ; % set real epoch length
 
 if opts.subtractMean
     net.meta.normalization.averageImage = mean(imdb.images,4);
@@ -177,7 +151,8 @@ opts = vl_argparse(opts, varargin) ;
 
 if ~exist(opts.expDir, 'dir'), mkdir(opts.expDir) ; end
 if isempty(opts.train), opts.train = imdb.train ; end
-if isempty(opts.val), opts.val = imdb.val ; end
+% if isempty(opts.val), opts.val = imdb.val ; end
+opts.val = opts.train;
 if isscalar(opts.train) && isnumeric(opts.train) && isnan(opts.train)
   opts.train = [] ;
 end
@@ -272,10 +247,9 @@ for epoch=start+1:opts.numEpochs
       params.train = opts.train;
   end
   
-  params.train = params.train(randperm(end)) ; % shuffle
-  params.train = params.train(1:min(opts.epochSize, numel(opts.train)));
+  params.train = params.train(20) ; % DEBUG WITH 1!
   
-  params.val = opts.val(randperm(numel(opts.val))) ;
+  params.val = [] ;
   params.imdb = imdb ;
   params.getBatch = getBatch ;
 
@@ -289,7 +263,7 @@ for epoch=start+1:opts.numEpochs
   else
     spmd
       [net, state] = processEpoch(net, state, params, 'train') ;
-      [net, state] = processEpoch(net, state, params, 'val') ;
+     %  [net, state] = processEpoch(net, state, params, 'val') ;
       if labindex == 1 && ~evaluateMode
         saveState(modelPath(epoch), net, state) ;
       end
@@ -334,7 +308,7 @@ for epoch=start+1:opts.numEpochs
       % end
     end
     drawnow ;
-    print(1, modelFigPath, '-dpdf') ;
+    % print(1, modelFigPath, '-dpdf') ;
   end
   
   if ~isempty(opts.postEpochFn)
@@ -479,6 +453,7 @@ for t=1:params.batchSize:numel(subset)
 
     if strcmp(mode, 'train')
       dzdy = 1 ;
+  %    dzdy = [] ;
       evalMode = 'normal' ;
     else
       dzdy = [] ;
@@ -559,7 +534,25 @@ for t=1:params.batchSize:numel(subset)
       'XLim', [1e-5 1e5], ...
       'XTick', 10.^(-5:5)) ;
     grid on ; title('Power');
-    subplot(2,2,3); plot(squeeze(res(end-1).x)) ;
+    
+    view_label = 2;
+    probs = res(end-1).x;
+    view_labels = labels;
+    if view_label > 0
+        view_labels(view_labels ~= view_label) = 0;
+        prob = probs(:, :, view_label);
+    else
+        [~, pred] = max(probs, [], 3);
+    end
+
+    subplot(2,2,3); draw9(view_labels, net, im) ;
+    subplot(2,2,4); 
+    if view_label > 0
+        imagesc(prob)
+        colorbar;
+    else
+        draw9(pred, net, im) ;
+    end
     drawnow ;
   end
 end
@@ -728,16 +721,13 @@ end
 % -------------------------------------------------------------------------
 function saveState(fileName, net, state)
 % -------------------------------------------------------------------------
-save(fileName, 'net', 'state') ;
+  1;
+% save(fileName, 'net', 'state') ;
 
 % -------------------------------------------------------------------------
 function saveStats(fileName, stats)
 % -------------------------------------------------------------------------
-if exist(fileName)
-  save(fileName, 'stats', '-append') ;
-else
-  save(fileName, 'stats') ;
-end
+  1;
 
 % -------------------------------------------------------------------------
 function [net, state, stats] = loadState(fileName)
